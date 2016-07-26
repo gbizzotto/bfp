@@ -1,3 +1,11 @@
+# Brainfuck VM by Gabriel.Bizzotto at gmail
+# TODO:
+# - parse "code!input" from stdin
+# - more optimization
+# BFBench:
+# - beer.b:     0m00.07s
+# - factor.b:   0m21.65s (time echo "123456789" |  python bf.py factor.b)
+# - mandelbrot: 7m18.40s
 
 import sys
 
@@ -83,29 +91,9 @@ lenmemory = 1000
                if pointer_local in add_map.keys():
                   del add_map[pointer_local]
             v += 1
-         is_an_if = False#pointer_local in zero_set
-         if bf[pc+v] == ']' and is_an_if:
-            # add if
-            code += "   "*depth
-            code += "if memory[pointer] != 0:\n"
-            depth += 1
-            for k in zero_set:
-               if k != pointer_local:
-                  code += "   "*depth
-                  code += "memory[pointer+"+str(k)+"] = 0\n"
-            for k in add_map.keys():
-               if k != pointer_local:
-                  code += "   "*depth
-                  code += "memory[pointer+"+str(k)+"] = memory[pointer+"+str(k)+"] + "+str(add_map[k])+"\n"
-            if pointer_local != 0:
-               code += "   "*depth
-               code += "pointer += " + str(pointer_local) + "\n"
-            code += "   "*depth
-            code += "memory[pointer] = 0\n"
-            depth -= 1
-            v += 1
-         elif bf[pc+v] == ']' and pointer_local == 0 and 0 in add_map.keys() and add_map[0] == -1:
-            # mul map
+         is_an_add = pointer_local in zero_set
+         if bf[pc+v] == ']' and (is_an_add or (pointer_local == 0 and 0 in add_map.keys() and add_map[0] == -1)):
+            # add map or mul map
             code += "   "*depth
             code += "if memory[pointer] != 0:\n"
             depth += 1
@@ -116,13 +104,21 @@ lenmemory = 1000
             for k in add_map.keys():
                if k != pointer_local:
                   if k in zero_set:
+                     # this value is set
                      code += "   "*depth
                      code += "memory[pointer+"+str(k)+"] = " + str(add_map[k]) + "\n"
+                  elif is_an_add:
+                     code += "   "*depth
+                     code += "memory[pointer+"+str(k)+"] = memory[pointer+"+str(k)+"] + "+str(add_map[k])+"\n"
                   else:
+                     # is a mul
                      code += "   "*depth
                      code += "memory[pointer+"+str(k)+"] = memory[pointer+"+str(k)+"] + memory[pointer]*"+str(add_map[k])+"\n"
             code += "   "*depth
-            code += "memory[pointer] = 0\n"
+            code += "memory[pointer+"+str(pointer_local)+"] = 0\n"
+            if pointer_local != 0:
+               code += "   "*depth
+               code += "pointer += "+str(pointer_local)+"\n"
             depth -= 1
             v += 1
          else:
@@ -140,7 +136,7 @@ lenmemory = 1000
          code += "   "*depth
          code += "sys.stdout.write(chr(memory[pointer]))\n"
       pc += v
-   print(code)
+#   print(code)
    exec(code)
 
 #@profile
