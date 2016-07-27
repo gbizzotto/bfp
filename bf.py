@@ -3,11 +3,13 @@
 # - parse "code!input" from stdin
 # - more optimization
 # BFBench:
-# - beer.b:     0m00.07s
-# - factor.b:   0m21.65s (time echo "123456789" |  python bf.py factor.b)
-# - mandelbrot: 7m18.40s
+# - beer.b:     0m00.06s
+# - factor.b:   0m20.50s (time echo "123456789" |  python bf.py factor.b)
+# - mandelbrot: 5m32.00s
 
+import os.path
 import sys
+from array import array 
 
 def replace_subsequence_once(l,a,b):
    done = 0
@@ -22,10 +24,19 @@ def replace_subsequence(l,a,b):
       pass
 
 #@profile
-def RunInline(bf, fin):
-   code = """memory = [0] * 10000
+def RunInline(bf, fin, print_code, filename):
+   code = ""
+   if (print_code):
+      code += "# " + filename + "\n\n"
+      code += """import sys
+from array import array 
+
+fin = sys.stdin
+"""
+   code += """memory = array('b', [0] * 10000)
 pointer = 0
 lenmemory = 1000
+
 """
    lenbf = len(bf)
    pc = 0
@@ -37,7 +48,7 @@ lenmemory = 1000
          while pc+v < lenbf and bf[pc+v] == inst:
             v += 1
          code += "   "*depth
-         code += "memory[pointer] = memory[pointer]+"+str(v)+"\n"
+         code += "memory[pointer] = (memory[pointer]+"+str(v)+")&255\n"
       elif inst == '>':
          while pc+v < lenbf and bf[pc+v] == inst:
             v += 1
@@ -58,16 +69,20 @@ lenmemory = 1000
          while pc+v < lenbf and bf[pc+v] == inst:
             v += 1
          code += "   "*depth
-         code += "memory[pointer] = memory[pointer]-"+str(v)+"\n"
+         code += "memory[pointer] = (memory[pointer]-"+str(v)+")&255\n"
       elif inst == ']':
-         if pc > 0 and bf[pc-1] != ']':
-            code += "   "*depth
-            code += "memory[pointer] %= 256\n"
          depth -= 1
-      elif inst == '[':
-         if pc > 0 and bf[pc-1] != '[':
+         local_sum = 0
+         while pc+v < lenbf and bf[pc+v] in ['+','-']:
+            if bf[pc+v] == '+':
+               local_sum += 1
+            else:
+               local_sum -= 1
+            v += 1
+         if local_sum != 0:
             code += "   "*depth
-            code += "memory[pointer] %= 256\n"
+            code += "memory[pointer] = "+str(local_sum)+"&255\n"
+      elif inst == '[':
          pointer_local = 0 
          add_map = {0: 0}
          zero_set = set()
@@ -100,94 +115,95 @@ lenmemory = 1000
             for k in zero_set:
                if k != pointer_local:
                   code += "   "*depth
-                  code += "memory[pointer+"+str(k)+"] = 0\n"
+                  if k == 0:
+                     code += "memory[pointer] = 0\n"
+                  else:
+                     code += "memory[pointer+"+str(k)+"] = 0\n"
             for k in add_map.keys():
                if k != pointer_local:
                   if k in zero_set:
                      # this value is set
                      code += "   "*depth
-                     code += "memory[pointer+"+str(k)+"] = " + str(add_map[k]) + "\n"
+                     if k == 0:
+                        code += "memory[pointer] = " + str(add_map[0]) + "\n"
+                     else:
+                        code += "memory[pointer+"+str(k)+"] = " + str(add_map[k]) + "\n"
                   elif is_an_add:
                      code += "   "*depth
-                     code += "memory[pointer+"+str(k)+"] = memory[pointer+"+str(k)+"] + "+str(add_map[k])+"\n"
+                     if k == 0:
+                        code += "memory[pointer] = (memory[pointer]+"+str(add_map[0])+")&255\n"
+                     else:
+                        code += "memory[pointer+"+str(k)+"] = (memory[pointer+"+str(k)+"]+"+str(add_map[k])+")&255\n"
                   else:
                      # is a mul
                      code += "   "*depth
-                     code += "memory[pointer+"+str(k)+"] = memory[pointer+"+str(k)+"] + memory[pointer]*"+str(add_map[k])+"\n"
-            code += "   "*depth
-            code += "memory[pointer+"+str(pointer_local)+"] = 0\n"
+                     if add_map[k] == 1:
+                        code += "memory[pointer+"+str(k)+"] = (memory[pointer+"+str(k)+"]+memory[pointer])&255\n"
+                     else:
+                        code += "memory[pointer+"+str(k)+"] = (memory[pointer+"+str(k)+"]+memory[pointer]*"+str(add_map[k])+")&255\n"
+            v += 1
+            local_sum = 0
+            while pc+v < lenbf and bf[pc+v] in ['+','-']:
+               if bf[pc+v] == '+':
+                  local_sum += 1
+               else:
+                  local_sum -= 1
+               v += 1
             if pointer_local != 0:
                code += "   "*depth
                code += "pointer += "+str(pointer_local)+"\n"
-            depth -= 1
-            v += 1
+            if local_sum != 0:
+               mask = "&255"
+               depth -= 1
+               code += "   "*depth
+               if pointer_local == 0:
+                  code += "memory[pointer] = "+str(local_sum)+mask+"\n"
+               else:
+                  code += "memory[pointer+"+str(pointer_local)+"] = "+str(local_sum)+mask+"\n"
+            else:
+               code += "   "*depth
+               if pointer_local == 0:
+                  code += "memory[pointer] = 0\n"
+               else:
+                  code += "memory[pointer+"+str(pointer_local)+"] = 0\n"
+               depth -= 1
          else:
             code += "   "*depth
             code += "while memory[pointer] != 0:\n"
             depth += 1
             v = 1
       elif inst == 'z':
+         local_sum = 0
+         while pc+v < lenbf and bf[pc+v] in ['+','-']:
+            if bf[pc+v] == '+':
+               local_sum += 1
+            else:
+               local_sum -= 1
+            v += 1
          code += "   "*depth
-         code += "memory[pointer] = 0\n"
+         code += "memory[pointer] = "+str(local_sum)+"\n"
       elif inst == ',':
          code += "   "*depth
          code += "memory[pointer] = ord(fin.read(1))\n"
       elif inst == '.':
          code += "   "*depth
          code += "sys.stdout.write(chr(memory[pointer]))\n"
+      if print_code:
+         code += "   "*depth
+         code += "# "
+         for c in bf[pc:pc+v]:
+            code += c
+         code += "\n"
       pc += v
-#   print(code)
-   exec(code)
-
-#@profile
-def Run(code, fin):
-   memory = [0]
-   pointer = 0
-   pc = 0
-   loopstack = []
-   lencode = len(code)
-   lenmemory = 1
-   while pc < lencode:
-      inst = code[pc]
-      if inst == '+':
-         memory[pointer] = (memory[pointer]+1)%256
-      elif inst == '>':
-         pointer += 1
-         if pointer >= lenmemory:
-            memory.append(0)
-            lenmemory += 1
-      elif inst == '<':
-         pointer -= 1
-      elif inst == '-':
-         memory[pointer] = (memory[pointer]-1)%256
-      elif inst == ']':
-         if memory[pointer] != 0:
-            pc = loopstack[-1]
-         else:
-            loopstack.pop()
-      elif inst == '[':
-         if memory[pointer] != 0:
-            loopstack.append(pc)
-         else:
-            skip = 1
-            while skip > 0 and pc < lencode:
-               pc += 1
-               if code[pc] == '[':
-                  skip += 1
-               elif code[pc] == ']':
-                  skip -= 1
-      elif inst == 'z':
-         memory[pointer] = 0
-      elif inst == ',':
-         memory[pointer] = ord(fin.read())
-      elif inst == '.':
-         sys.stdout.write(chr(memory[pointer]))
-      pc += 1
+   if print_code:
+      print(code)
+   else:
+      exec(code)
 
 def ReadCode(filename):
    result = []
    with open(filename, "r") as f:
-      code = f.read()
+      code = array('c', f.read())
    for c in code:
       if c in ['+','-','<','>','[',']','.',',']:
          result.append(c)
@@ -195,11 +211,10 @@ def ReadCode(filename):
    replace_subsequence(result, ['-','+'], [])
    replace_subsequence(result, ['<','>'], [])
    replace_subsequence(result, ['>','<'], [])
-   replace_subsequence(result, [']','[','-',']'], [']'])
-   replace_subsequence(result, [']','[','+',']'], [']'])
    replace_subsequence(result, ['[','-',']'], ['z'])
-   replace_subsequence(result, ['[','-',']','z'], ['z'])
-   replace_subsequence(result, ['[','+',']','z'], ['z'])
+   replace_subsequence(result, ['[','+',']'], ['z'])
+   replace_subsequence(result, ['z','z'], ['z'])
+   replace_subsequence(result, [']','z'], [']'])
    replace_subsequence(result, ['+',','], [','])
    replace_subsequence(result, ['-',','], [','])
    replace_subsequence(result, ['z',','], [','])
@@ -213,9 +228,11 @@ def main(argv):
       print("Use: python test.py <file>")
       return
    
-   code = ReadCode(argv[0])
+   for s in filter(os.path.isfile, argv):
+      code = ReadCode(s)
+      break
 #   Run(code, sys.stdin)
-   RunInline(code, sys.stdin)
+   RunInline(code, sys.stdin, "-c" in argv, s)
    
 
 if __name__ == "__main__":
