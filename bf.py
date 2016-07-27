@@ -1,15 +1,16 @@
 # Brainfuck VM by Gabriel.Bizzotto at gmail
 # TODO:
-# - parse "code!input" from stdin
+# - fix the "cat code | python bf.py" with no ! in code hanging problm
 # - more optimization
 # BFBench:
 # - beer.b:     0m00.06s
-# - factor.b:   0m20.50s (time echo "123456789" |  python bf.py factor.b)
-# - mandelbrot: 5m32.00s
+# - factor.b:   0m18.50s (time echo "123456789" |  python bf.py factor.b)
+# - mandelbrot: 4m57.00s
 
 import os.path
 import sys
 from array import array 
+import select
 
 def replace_subsequence_once(l,a,b):
    done = 0
@@ -26,14 +27,14 @@ def replace_subsequence(l,a,b):
 #@profile
 def RunInline(bf, fin, print_code, filename):
    code = ""
-   if (print_code):
-      code += "# " + filename + "\n\n"
-      code += """import sys
+   #if (print_code):
+   code += "# " + filename + "\n\n"
+   code += """import sys
 from array import array 
 
 fin = sys.stdin
 """
-   code += """memory = array('b', [0] * 10000)
+   code += """memory = array('B', [0] * 10000)
 pointer = 0
 lenmemory = 1000
 
@@ -80,8 +81,11 @@ lenmemory = 1000
                local_sum -= 1
             v += 1
          if local_sum != 0:
+            mask = ""
+            if local_sum < 0 or local_sum > 255:
+               mask = "&255"
             code += "   "*depth
-            code += "memory[pointer] = "+str(local_sum)+"&255\n"
+            code += "memory[pointer] = "+str(local_sum)+mask+"\n"
       elif inst == '[':
          pointer_local = 0 
          add_map = {0: 0}
@@ -125,9 +129,9 @@ lenmemory = 1000
                      # this value is set
                      code += "   "*depth
                      if k == 0:
-                        code += "memory[pointer] = " + str(add_map[0]) + "\n"
+                        code += "memory[pointer] = " + str(add_map[0]) + "&255\n"
                      else:
-                        code += "memory[pointer+"+str(k)+"] = " + str(add_map[k]) + "\n"
+                        code += "memory[pointer+"+str(k)+"] = " + str(add_map[k]) + "&255\n"
                   elif is_an_add:
                      code += "   "*depth
                      if k == 0:
@@ -153,7 +157,9 @@ lenmemory = 1000
                code += "   "*depth
                code += "pointer += "+str(pointer_local)+"\n"
             if local_sum != 0:
-               mask = "&255"
+               mask = ""
+               if mask < 0 or mask > 255:
+                  mask = "&255"
                depth -= 1
                code += "   "*depth
                if pointer_local == 0:
@@ -188,12 +194,12 @@ lenmemory = 1000
       elif inst == '.':
          code += "   "*depth
          code += "sys.stdout.write(chr(memory[pointer]))\n"
-      if print_code:
-         code += "   "*depth
-         code += "# "
-         for c in bf[pc:pc+v]:
-            code += c
-         code += "\n"
+      #if print_code:
+      code += "   "*depth
+      code += "# "
+      for c in bf[pc:pc+v]:
+         code += c
+      code += "\n"
       pc += v
    if print_code:
       print(code)
@@ -207,33 +213,41 @@ def ReadCode(filename):
    for c in code:
       if c in ['+','-','<','>','[',']','.',',']:
          result.append(c)
-   replace_subsequence(result, ['+','-'], [])
-   replace_subsequence(result, ['-','+'], [])
-   replace_subsequence(result, ['<','>'], [])
-   replace_subsequence(result, ['>','<'], [])
-   replace_subsequence(result, ['[','-',']'], ['z'])
-   replace_subsequence(result, ['[','+',']'], ['z'])
-   replace_subsequence(result, ['z','z'], ['z'])
-   replace_subsequence(result, [']','z'], [']'])
-   replace_subsequence(result, ['+',','], [','])
-   replace_subsequence(result, ['-',','], [','])
-   replace_subsequence(result, ['z',','], [','])
-
    return result
+
+def Optimize(code):
+   replace_subsequence(code, ['+','-'], [])
+   replace_subsequence(code, ['-','+'], [])
+   replace_subsequence(code, ['<','>'], [])
+   replace_subsequence(code, ['>','<'], [])
+   replace_subsequence(code, ['[','-',']'], ['z'])
+   replace_subsequence(code, ['[','+',']'], ['z'])
+   replace_subsequence(code, ['z','z'], ['z'])
+   replace_subsequence(code, [']','z'], [']'])
+   replace_subsequence(code, ['+',','], [','])
+   replace_subsequence(code, ['-',','], [','])
+   replace_subsequence(code, ['z',','], [','])
+   return code
 
 def main(argv):
    """mvm.py"""
    
-   if len(argv) == 0:
-      print("Use: python test.py <file>")
-      return
-   
+   code = []
    for s in filter(os.path.isfile, argv):
       code = ReadCode(s)
+      filename = s
       break
-#   Run(code, sys.stdin)
-   RunInline(code, sys.stdin, "-c" in argv, s)
-   
+   else:
+      filename = "<stdin>"
+      # read code from input
+      c = ' '
+      while c != '!':
+         c = sys.stdin.read(1)
+         if c in ['+','-','<','>','[',']','.',',']:
+            code.append(c)
+   code = Optimize(code)
+   RunInline(array('c',code), sys.stdin, "-c" in argv, filename)
+      
 
 if __name__ == "__main__":
    main(sys.argv[1:])
