@@ -3,9 +3,9 @@
 # - fix the "cat code | python bf.py" with no ! in code hanging problm
 # - more optimization
 # BFBench:
-# - beer.b:     0m00.06s
-# - factor.b:   0m18.50s (time echo "123456789" |  python bf.py factor.b)
-# - mandelbrot: 4m57.00s
+# - factor.b:           16.94s (time echo "123456789" |  python bf.py factor.b)
+# - mandelbrot:       4m45
+# - si ! si ! hi123: 11m26
 
 import os.path
 import sys
@@ -27,7 +27,6 @@ def replace_subsequence(l,a,b):
 #@profile
 def RunInline(bf, fin, print_code, filename):
    code = ""
-   #if (print_code):
    code += "# " + filename + "\n\n"
    code += """import sys
 from array import array 
@@ -45,32 +44,69 @@ lenmemory = 1000
    while pc < lenbf:
       inst = bf[pc]
       v = 1
-      if inst == '+':
-         while pc+v < lenbf and bf[pc+v] == inst:
-            v += 1
-         code += "   "*depth
-         code += "memory[pointer] = (memory[pointer]+"+str(v)+")&255\n"
-      elif inst == '>':
-         while pc+v < lenbf and bf[pc+v] == inst:
-            v += 1
-         code += "   "*depth
-         code += "pointer += "+str(v)+"\n"
-#         code += "   "*depth
-#         code += "if pointer >= lenmemory:\n"
-#         code += "   "*depth
-#         code += "   memory += [0] * 1000\n"
-#         code += "   "*depth
-#         code += "   lenmemory += 1000\n"
-      elif inst == '<':
-         while pc+v < lenbf and bf[pc+v] == inst:
-            v += 1
-         code += "   "*depth
-         code += "pointer -= "+str(v)+"\n"
-      elif inst == '-':
-         while pc+v < lenbf and bf[pc+v] == inst:
-            v += 1
-         code += "   "*depth
-         code += "memory[pointer] = (memory[pointer]-"+str(v)+")&255\n"
+      if inst in ['+', '-', '<', '>']:
+         pointer_local = 0 
+         add_map = {}
+         set_map = {}
+         v = 0
+         while inst in ['<', '>', '+', '-', 'z']:
+            if inst == '<':
+               pointer_local -= 1
+               v += 1
+            elif inst == '>':
+               pointer_local += 1
+               v += 1
+            elif inst == '-':
+               if pointer_local not in add_map.keys():
+                  add_map[pointer_local] = -1
+               else:
+                  add_map[pointer_local] -= 1
+               v += 1
+            elif inst == '+':
+               if pointer_local not in add_map.keys():
+                  add_map[pointer_local] = 1
+               else:
+                  add_map[pointer_local] += 1
+               v += 1
+            elif inst == 'z':
+               local_sum = 0
+               v += 1
+               while pc+v < lenbf and bf[pc+v] in ['+','-']:
+                  if bf[pc+v] == '+':
+                     local_sum += 1
+                  else:
+                     local_sum -= 1
+                  v += 1
+               set_map[pointer_local] = local_sum
+               if pointer_local in add_map.keys():
+                  del add_map[pointer_local]
+            if pc+v < lenbf:
+               inst = bf[pc+v]
+            else:
+               inst = ' '
+         for key, value in set_map.iteritems():
+            if key != pointer_local:
+               code += "   "*depth
+               if key == 0:
+                  code += "memory[pointer] = "+str(value)+"\n"
+               else:
+                  code += "memory[pointer+"+str(key)+"] = "+str(value)+"\n"
+         for key, value in add_map.iteritems():
+            if value != 0 and key != pointer_local:
+               code += "   "*depth
+               if key == 0:
+                  code += "memory[pointer] = (memory[pointer] + "+str(value)+")&255\n"
+               else:
+                  code += "memory[pointer+"+str(key)+"] = (memory[pointer+"+str(key)+"] + "+str(value)+")&255\n"
+         if pointer_local != 0:
+            code += "   "*depth
+            code += "pointer += " + str(pointer_local) + "\n"
+         if pointer_local in set_map.keys():
+            code += "   "*depth
+            code += "memory[pointer] = "+str(set_map[pointer_local])+"\n"
+         if pointer_local in add_map.keys():
+            code += "   "*depth
+            code += "memory[pointer] = (memory[pointer] + "+str(add_map[pointer_local])+")&255\n"
       elif inst == ']':
          depth -= 1
          local_sum = 0
@@ -194,7 +230,6 @@ lenmemory = 1000
       elif inst == '.':
          code += "   "*depth
          code += "sys.stdout.write(chr(memory[pointer]))\n"
-      #if print_code:
       code += "   "*depth
       code += "# "
       for c in bf[pc:pc+v]:
