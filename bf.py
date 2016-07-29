@@ -23,22 +23,23 @@ def replace_subsequence(l,a,b):
    while replace_subsequence_once(l,a,b):
       pass
 
-#@profile
 def RunInline(bf, print_code, filename):
    code = ""
    code += "# " + filename + "\n\n"
    code += """import sys
 
-fin = sys.stdin
 """
-   code += """d = [0] * 10000
-p = 0
-lend = 1000
+   code += """
+#@profile
+def ok():
+   d = [0] * 10000
+   p = 0
+   lend = 1000
 
 """
    lenbf = len(bf)
    pc = 0
-   depth = 0
+   depth = 1
    while pc < lenbf:
       inst = bf[pc]
       v = 1
@@ -268,7 +269,13 @@ lend = 1000
          code += "d[p] = "+str(local_sum)+"\n"
       elif inst == ',':
          code += "   "*depth
-         code += "d[p] = ord(fin.read(1))\n"
+         code += "try:"
+         code += "   "*(depth+1)
+         code += "d[p] = ord(sys.stdin.read(1))\n"
+         code += "   "*depth
+         code += "except:"
+         code += "   "*(depth+1)
+         code += "d[p] = 0\n"
       elif inst == '.':
          code += "   "*depth
          code += "sys.stdout.write(chr(d[p]))\n"
@@ -278,6 +285,10 @@ lend = 1000
          code += c
       code += "\n"
       pc += v
+   depth -= 1
+   code += "\n\n"
+   code += "   "*depth
+   code += "ok()\n"
    if print_code:
       print(code)
    else:
