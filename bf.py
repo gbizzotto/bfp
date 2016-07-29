@@ -3,9 +3,9 @@
 # - fix the "cat code | python bf.py" with no ! in code hanging problm
 # - more optimization
 # BFBench:
-# - factor.b:          12.8s (time echo "123456789" |  python bf.py factor.b)
-# - mandelbrot:      3m50
-# - si ! si ! hi123: 7m51
+# - factor.b:          9.6s (time echo "123456789" |  python bf.py factor.b)
+# - mandelbrot:      2m39
+# - si ! si ! hi123: 9m55
 
 import os.path
 import sys
@@ -170,8 +170,8 @@ def ok():
                   del add_map[p_local]
             v += 1
          is_an_add = p_local in zero_set
-         if bf[pc+v] == ']' and len(add_map) == 0 and len(zero_set) == 0 and p_local == 1:
-            # seek loop [>]
+         if bf[pc+v] == ']' and len(add_map) == 0 and len(zero_set) == 0 and (p_local == 1 or p_local == -1):
+            # seek loop [>] or [<]
             local_sum = 0
             v += 1
             while pc+v < lenbf and bf[pc+v] in ['>','<']:
@@ -180,11 +180,24 @@ def ok():
                else:
                   local_sum -= 1
                v += 1
-            code += "   "*depth
-            if local_sum == 0:
-               code += "p += d[p:].index(0)\n"
+            if p_local == 1:
+               # [>]
+               code += "   "*depth
+               if local_sum == 0:
+                  code += "p += d[p:].index(0)\n"
+               else:
+                  code += "p += d[p:].index(0) + "+str(local_sum)+"\n"
             else:
-               code += "p += d[p:].index(0) + "+str(local_sum)+"\n"
+               # [<]
+               code += "   "*depth
+               code += "dd=d[:p+1]\n"
+               code += "   "*depth
+               code += "dd.reverse()\n"
+               code += "   "*depth
+               if local_sum == 0:
+                  code += "p -= dd.index(0)\n"
+               else:
+                  code += "p -= dd.index(0) + "+str(-local_sum)+"\n"
          elif bf[pc+v] == ']' and (is_an_add or (p_local == 0 and 0 in add_map.keys() and add_map[0] == -1)):
             # add map or mul map
             code += "   "*depth
