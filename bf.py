@@ -170,7 +170,7 @@ def ok():
                   del add_map[p_local]
             v += 1
          is_an_add = p_local in zero_set
-         if bf[pc+v] == ']' and len(add_map) == 0 and len(zero_set) == 0 and (p_local == 1 or p_local == -1):
+         if bf[pc+v] == ']' and len(add_map) == 0 and (len(zero_set) == 0 or (len(zero_set)==1 and 0 in zero_set)) and (p_local == 1 or p_local == -1):
             # seek loop [>] or [<]
             local_sum = 0
             v += 1
@@ -182,22 +182,47 @@ def ok():
                v += 1
             if p_local == 1:
                # [>]
-               code += "   "*depth
-               if local_sum == 0:
-                  code += "p += d[p:].index(0)\n"
+               if len(zero_set) == 0:
+                  code += "   "*depth
+                  if local_sum == 0:
+                     code += "p += d[p:].index(0)\n"
+                  else:
+                     code += "p += d[p:].index(0) + "+str(local_sum)+"\n"
                else:
-                  code += "p += d[p:].index(0) + "+str(local_sum)+"\n"
+                  code += "   "*depth
+                  code += "tmp = p + d[p:].index(0)\n"
+                  code += "   "*depth
+                  code += "d[p:tmp] = [0] * (tmp-p)\n"
+                  if local_sum == 0:
+                     code += "p += tmp\n"
+                  else:
+                     code += "p += tmp + "+str(local_sum)+"\n"
             else:
                # [<]
-               code += "   "*depth
-               code += "dd=d[:p+1]\n"
-               code += "   "*depth
-               code += "dd.reverse()\n"
-               code += "   "*depth
-               if local_sum == 0:
-                  code += "p -= dd.index(0)\n"
+               if len(zero_set) == 0:
+                  code += "   "*depth
+                  code += "dd=d[:p+1]\n"
+                  code += "   "*depth
+                  code += "dd.reverse()\n"
+                  code += "   "*depth
+                  if local_sum == 0:
+                     code += "p -= dd.index(0)\n"
+                  else:
+                     code += "p -= dd.index(0) + "+str(-local_sum)+"\n"
                else:
-                  code += "p -= dd.index(0) + "+str(-local_sum)+"\n"
+                  code += "   "*depth
+                  code += "dd=d[:p+1]\n"
+                  code += "   "*depth
+                  code += "dd.reverse()\n"
+                  code += "   "*depth
+                  code += "tmp = p - dd.index(0)\n"
+                  code += "   "*depth
+                  code += "d[tmp+1:p+1] = [0] * (p-tmp)\n"
+                  code += "   "*depth
+                  if local_sum == 0:
+                     code += "p = tmp\n"
+                  else:
+                     code += "p = tmp + "+str(-local_sum)+"\n"
          elif bf[pc+v] == ']' and (is_an_add or (p_local == 0 and 0 in add_map.keys() and add_map[0] == -1)):
             # add map or mul map
             code += "   "*depth
