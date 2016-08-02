@@ -24,12 +24,9 @@ def replace_subsequence(l,a,b):
       pass
 
 def RunInline(bf, print_code, filename):
-   code = ""
-   code += "# " + filename + "\n\n"
+   code = "# " + filename + "\n\n"
    code += """import sys
 
-"""
-   code += """
 #@profile
 def ok():
    d = [0] * 10000
@@ -170,7 +167,7 @@ def ok():
                   del add_map[p_local]
             v += 1
          is_an_add = p_local in zero_set
-         if bf[pc+v] == ']' and len(add_map) == 0 and (len(zero_set) == 0 or (len(zero_set)==1 and 0 in zero_set)) and (p_local == 1 or p_local == -1):
+         if bf[pc+v] == ']' and len(add_map) == 0 and (len(zero_set) == 0 or (len(zero_set)==1 and 0 in zero_set and (p_local == 1 or p_local == -1))) and (p_local == 1 or p_local < 0):
             # seek loop [>] or [<]
             local_sum = 0
             v += 1
@@ -194,21 +191,17 @@ def ok():
                   code += "   "*depth
                   code += "d[p:tmp] = [0] * (tmp-p)\n"
                   if local_sum == 0:
-                     code += "p += tmp\n"
+                     code += "p = tmp\n"
                   else:
-                     code += "p += tmp + "+str(local_sum)+"\n"
+                     code += "p = tmp + "+str(local_sum)+"\n"
             else:
                # [<]
                if len(zero_set) == 0:
                   code += "   "*depth
-                  code += "dd=d[:p+1]\n"
-                  code += "   "*depth
-                  code += "dd.reverse()\n"
-                  code += "   "*depth
                   if local_sum == 0:
-                     code += "p -= dd.index(0)\n"
+                     code += "p -= d[p::"+str(p_local)+"].index(0)*"+str(-p_local)+"\n"
                   else:
-                     code += "p -= dd.index(0) + "+str(-local_sum)+"\n"
+                     code += "p -= d[p::"+str(p_local)+"].index(0)*"+str(-p_local)+" + "+str(-local_sum)+"\n"
                else:
                   code += "   "*depth
                   code += "dd=d[:p+1]\n"
