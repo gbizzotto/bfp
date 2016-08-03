@@ -3,9 +3,9 @@
 # - fix the "cat code | python bf.py" with no ! in code hanging problm
 # - more optimization
 # BFBench:
-# - factor.b:          9.6s (time echo "123456789" |  python bf.py factor.b)
-# - mandelbrot:      2m39
-# - si ! si ! hi123: 9m55
+# - factor.b:          9.3s (time echo "123456789" |  python bf.py factor.b)
+# - mandelbrot:      2m34
+# - si ! si ! hi123: 5m13
 
 import os.path
 import sys
@@ -167,56 +167,7 @@ def ok():
                   del add_map[p_local]
             v += 1
          is_an_add = p_local in zero_set
-         if bf[pc+v] == ']' and len(add_map) == 0 and (len(zero_set) == 0 or (len(zero_set)==1 and 0 in zero_set and (p_local == 1 or p_local == -1))) and (p_local == 1 or p_local < 0):
-            # seek loop [>] or [<]
-            local_sum = 0
-            v += 1
-            while pc+v < lenbf and bf[pc+v] in ['>','<']:
-               if bf[pc+v] == '>':
-                  local_sum += 1
-               else:
-                  local_sum -= 1
-               v += 1
-            if p_local == 1:
-               # [>]
-               if len(zero_set) == 0:
-                  code += "   "*depth
-                  if local_sum == 0:
-                     code += "p += d[p:].index(0)\n"
-                  else:
-                     code += "p += d[p:].index(0) + "+str(local_sum)+"\n"
-               else:
-                  code += "   "*depth
-                  code += "tmp = p + d[p:].index(0)\n"
-                  code += "   "*depth
-                  code += "d[p:tmp] = [0] * (tmp-p)\n"
-                  if local_sum == 0:
-                     code += "p = tmp\n"
-                  else:
-                     code += "p = tmp + "+str(local_sum)+"\n"
-            else:
-               # [<]
-               if len(zero_set) == 0:
-                  code += "   "*depth
-                  if local_sum == 0:
-                     code += "p -= d[p::"+str(p_local)+"].index(0)*"+str(-p_local)+"\n"
-                  else:
-                     code += "p -= d[p::"+str(p_local)+"].index(0)*"+str(-p_local)+" + "+str(-local_sum)+"\n"
-               else:
-                  code += "   "*depth
-                  code += "dd=d[:p+1]\n"
-                  code += "   "*depth
-                  code += "dd.reverse()\n"
-                  code += "   "*depth
-                  code += "tmp = p - dd.index(0)\n"
-                  code += "   "*depth
-                  code += "d[tmp+1:p+1] = [0] * (p-tmp)\n"
-                  code += "   "*depth
-                  if local_sum == 0:
-                     code += "p = tmp\n"
-                  else:
-                     code += "p = tmp + "+str(-local_sum)+"\n"
-         elif bf[pc+v] == ']' and (is_an_add or (p_local == 0 and 0 in add_map.keys() and add_map[0] == -1)):
+         if bf[pc+v] == ']' and (is_an_add or (p_local == 0 and 0 in add_map.keys() and add_map[0] == -1)):
             # add map or mul map
             code += "   "*depth
             code += "if d[p] != 0:\n"
