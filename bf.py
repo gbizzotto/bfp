@@ -10,6 +10,7 @@
 import os.path
 import sys
 import select
+import copy
 
 memory_size = 10000
 
@@ -316,7 +317,36 @@ class Simple:
    def Addable(self):
       return len(self.zero_set) == 1 and self.shift in self.zero_set and self.shift not in self.add_map.keys()
 
-def Parse(bf, pc, lenbf, blocs):
+class NotZero:
+   pass
+
+class Set:
+   def __init__(self, v):
+      self.value = v
+class Add(list):
+   def __init__(self, *args):
+      list.__init__(self, *args)
+class Mul(list):
+   def __init__(self, *args):
+      list.__init__(self, *args)
+class Series(list):
+   def __init__(self, *args):
+      list.__init__(self, *args)
+      self.memory_map = [None] * 100
+      self.shift = 0
+#   def MapMemory(self):
+#      self.memory_map[0] = NotZero
+#      self.shift = 0
+#      for item in self:
+#         if isinstance(item, Simple):
+#            shift += item.shift
+#         elif isinstance(item, Series):
+#            if item.shift == None:
+#               self.shift = None:
+#            else
+#               self.shift += item.shift
+
+def Parse(bf, pc, lenbf, series):
    while pc < lenbf:
       inst = bf[pc]
       if inst in ['<', '>', '+', '-', 'z']:
@@ -344,18 +374,49 @@ def Parse(bf, pc, lenbf, blocs):
             if pc >= lenbf:
                break
             inst = bf[pc]
-         blocs.append(Simple(p_local, add_map, zero_set))
+         series.append(Simple(p_local, add_map, zero_set))
       else:
          if inst == ',' or inst == '.':
-            blocs.append(inst)
+            series.append(inst)
             pc += 1
          elif inst == '[':
-            new_bloc_and_pc = Parse(bf, pc+1, lenbf, [])
-            blocs.append(new_bloc_and_pc[0])
+            new_bloc_and_pc = Parse(bf, pc+1, lenbf, Series())
+            series.append(new_bloc_and_pc[0])
             pc = new_bloc_and_pc[1] + 1
          elif inst == ']':
             break
-   return (blocs,pc)
+   #series = series.MapMemory()
+   return (series,pc)
+
+def JITmulWithShiftsKnown(v, depth, will_set_cell, cell_value):
+   """build a mul operation with known multiplicator"""
+   if cell_value == 0:
+      return
+   code = "   "*depth
+   code += "# mul with known multiplier and shifts\n"
+   local_shift = 0
+   for k,a in v.add_map.iteritems():
+      if k != v.shift:
+         if k != local_shift:
+            code += "   "*depth
+            code += "p += "+str(k-local_shift)+"\n"
+            local_shift = k
+         code += "   "*depth
+         if a == 1:
+            code += "d[p] = (d[p]+"+str(cell_value)+")&255\n"
+         elif a == -1:
+            code += "d[p] = (d[p]-"+str(cell_value)+")&255\n"
+         else:
+            code += "d[p] = (d[p]+"+str(cell_value*a)+")&255\n"
+   if local_shift != 0:
+      code += "   "*depth
+      code += "p -= "+str(local_shift)+"\n"
+   if not will_set_cell:
+      code += "   "*depth
+      code += "d[p] = 0\n"
+   code += "   "*depth
+   code += "# end mul\n"
+   return code
 
 def JITmulWithShifts(v, depth, will_set_cell):
    """build a mul operation"""
@@ -424,50 +485,62 @@ def JITaddWithShifts(v, depth, will_set_cell):
    code += "# end add\n"
    return code
 
-def JITsimpleWithShifts(v, depth, cell_is_zero):
+def JITsimpleWithShifts(v, depth, cell_value):
    """JIT an instance of a Simple object"""
    #code = ""
    code = "   "*depth
-   code += "# simple\n"
+   code += "# simple with cell_value=" + str(cell_value) + "\n"
+
+   # cell 0
+   if 0 in v.zero_set:
+      v.zero_set.remove(0)
+      code += "   "*depth
+      if 0 not in v.add_map.keys():
+         code += "d[p] = 0\n"
+      else:
+         code += "d[p] = "+str(v.add_map[0]&255)+"\n"
+   elif 0 in v.add_map.keys():
+      code += "   "*depth
+      if cell_value is not None:
+         code += "d[p] = "+(str(cell_value+v.add_map[0]&255))+"\n"
+      else: 
+         code += "d[p] = (d[p]+"+str(v.add_map[0])+")&255\n"
+      del v.add_map[0]
+
    for k in v.zero_set:
-      if (v.shift == 0 or k != v.shift) and k not in v.add_map.keys():
+      if k != v.shift:
          code += "   "*depth
-         if k == 0:
-            code += "d[p] = 0\n"
-         else:
+         if k not in v.add_map.keys():
             code += "d[p+"+str(k)+"] = 0\n"
+         else:
+            code += "d[p+"+str(k)+"] = "+str(v.add_map[k]&255)+"\n"
    local_shift = 0
    for k,a in v.add_map.iteritems():
-      if v.shift == 0 or k != v.shift:
+      if k != v.shift and k not in v.zero_set:
          if k != local_shift:
             code += "   "*depth
             code += "p += "+str(k-local_shift)+"\n"
             local_shift = k
-         if k in v.zero_set or (k == 0 and cell_is_zero):
-            # this value is set
-            code += "   "*depth
-            if a < 0 or a > 255:
-               code += "d[p] = " + str(a) + "&255\n"
-            else:
-               code += "d[p] = " + str(a) + "\n"
-         else:
-            code += "   "*depth
-            code += "d[p] = (d[p]+"+str(a)+")&255\n"
+         code += "   "*depth
+         code += "d[p] = (d[p]+"+str(a)+")&255\n"
    if local_shift != v.shift:
       code += "   "*depth
       code += "p += "+str(v.shift-local_shift)+"\n"
    if v.shift != 0:
-      if v.shift in v.zero_set:
+      if v.shift in v.zero_set and v.shift in v.add_map:
+         code += "   "*depth
+         code += "d[p] = "+str(v.add_map[v.shift]&255)+"\n"
+      elif v.shift in v.zero_set:
          code += "   "*depth
          code += "d[p] = 0\n"
-      if v.shift in v.add_map:
+      elif v.shift in v.add_map:
          code += "   "*depth
          code += "d[p] = (d[p] + " + str(v.add_map[v.shift]) +")&255\n"
    code += "   "*depth
    code += "# end simple\n"
    return code
 
-def JITsub(tree, depth, cell_is_zero):
+def JITsub(tree, depth, cell_value):
    code = ""
    for i,v in enumerate(tree):
       if v == ',':
@@ -479,28 +552,33 @@ def JITsub(tree, depth, cell_is_zero):
          code += "except:\n"
          code += "   "*(depth+1)
          code += "d[p] = 0\n"
-         cell_is_zero = False
+         cell_value = None
       elif v == '.':
          code += "   "*depth
          code += "sys.stdout.write(chr(d[p]))\n"
       elif isinstance(v, Simple):
-         code += JITsimpleWithShifts(v, depth, cell_is_zero)
-         cell_is_zero = (cell_is_zero and v.shift == 0 and 0 not in v.add_map.keys()) \
-                      or(v.shift in v.zero_set and v.shift not in v.add_map.keys())
+         code += JITsimpleWithShifts(copy.deepcopy(v), depth, cell_value)
+         if v.shift != 0:
+            cell_value = None
+         if v.shift in v.zero_set:
+            cell_value = 0
+         if cell_value is not None and v.shift in v.add_map.keys():
+            cell_value += v.add_map[v.shift]
       elif isinstance(v, list):
-         if not cell_is_zero:
+         if cell_value != 0: # implicit or is None
             will_set_cell = i+1<len(tree) and isinstance(tree[i+1],Simple) and 0 in tree[i+1].add_map
             if len(v) == 1 and isinstance(v[0],Simple) and v[0].Mulable():
-               code += JITmulWithShifts(v[0], depth, will_set_cell)
+               if cell_value is not None:
+                  code += JITmulWithShiftsKnown(v[0], depth, will_set_cell, cell_value)
+               else:
+                  code += JITmulWithShifts(v[0], depth, will_set_cell)
             elif len(v) == 1 and isinstance(v[0],Simple) and v[0].Addable():
                code += JITaddWithShifts(v[0], depth, will_set_cell)
             else:
                code += "   "*depth
                code += "while d[p] != 0:\n"
-               code += JITsub(v, depth+1, False)
-            cell_is_zero = True
-            code += "   "*depth
-            code += "# cell is zero\n"
+               code += JITsub(v, depth+1, None)
+            cell_value = 0
    return code
 
 # mandelbrot 2m35
@@ -513,11 +591,9 @@ def JIT(tree, filename):
    code += "   d = [0] * "+str(memory_size)+"\n"
    code += "   p = 0\n"
    code += "   lend = "+str(memory_size)+"\n\n"
-   code += JITsub(tree, 1, True)
+   code += JITsub(tree, 1, 0)
    code += "\n\nrun_bf()\n"
    return code
-
-import pprint
 
 def main(argv):
    code = []
@@ -536,8 +612,9 @@ def main(argv):
    code = Optimize(code)
    #RunInline(code, "-c" in argv, filename)
 
-   parsed_code = Parse(code, 0, len(code), [])[0]
+   parsed_code = Parse(code, 0, len(code), Series())[0]
    jitted_code = JIT(parsed_code, filename)
+#   import pprint
 #   pp = pprint.PrettyPrinter(indent=4)
 #   pp.pprint(parsed_code)
    if "-c" in argv:
